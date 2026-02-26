@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
 func TestDeclarationToTupleSetNotCollected(t *testing.T) {
@@ -138,6 +140,45 @@ func TestPlanFromDesiredAndRemoteIncludesDuplicateRemoteDeletes(t *testing.T) {
 	}
 	if plan.Deletes[0].UsageID != "usage-2" {
 		t.Fatalf("expected usage-2 delete, got %#v", plan.Deletes[0])
+	}
+}
+
+func TestPlanFromDesiredAndRemoteSkipsDeleteWhenRemoteUsageIDMissing(t *testing.T) {
+	desired := map[string]privacyTuple{}
+	remote := remoteStateFromDataUsages([]webcore.AppDataUsage{
+		{
+			ID:             "   ",
+			Category:       "NAME",
+			Purpose:        "APP_FUNCTIONALITY",
+			DataProtection: dataProtectionLinked,
+		},
+	})
+
+	plan := planFromDesiredAndRemote("123", "./privacy.json", desired, remote)
+	if len(plan.Adds) != 0 {
+		t.Fatalf("expected no adds, got %#v", plan.Adds)
+	}
+	if len(plan.Deletes) != 0 {
+		t.Fatalf("expected no deletes without usage IDs, got %#v", plan.Deletes)
+	}
+	if len(plan.APICalls) != 0 {
+		t.Fatalf("expected no api calls, got %#v", plan.APICalls)
+	}
+}
+
+func TestDeclarationFromRemoteDataUsagesDefaultsToNotCollectedWhenEmpty(t *testing.T) {
+	declaration := declarationFromRemoteDataUsages(nil)
+
+	tuples, err := declarationToTupleSet(declaration)
+	if err != nil {
+		t.Fatalf("declarationToTupleSet() error = %v", err)
+	}
+	if len(tuples) != 1 {
+		t.Fatalf("expected one tuple, got %d", len(tuples))
+	}
+	wantKey := privacyTupleKey(privacyTuple{DataProtection: dataProtectionNotCollected})
+	if _, ok := tuples[wantKey]; !ok {
+		t.Fatalf("expected not-collected tuple key %q, got %#v", wantKey, tuples)
 	}
 }
 
