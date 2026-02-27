@@ -12,6 +12,7 @@ import (
 	"github.com/peterbourgon/ff/v3/ffcli"
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/staticdata"
 )
 
 // PricingSetCommandConfig configures pricing set commands.
@@ -114,38 +115,46 @@ func NewPricingSetCommand(config PricingSetCommandConfig) *ffcli.Command {
 			if priceValue != "" {
 				priceFilter := PriceFilter{Price: priceValue}
 				foundID := ""
-				fetch := func(nextURL string) (*asc.AppPricePointsV3Response, error) {
-					opts := []asc.PricePointsOption{
-						asc.WithPricePointsLimit(200),
-						asc.WithPricePointsTerritory(baseTerritoryID),
-					}
-					if nextURL != "" {
-						opts = append(opts, asc.WithPricePointsNextURL(nextURL))
-					}
-					return client.GetAppPricePoints(requestCtx, resolvedAppID, opts...)
+
+				// Try to find price point ID in static data first for faster lookup
+				if id, err := staticdata.GetPricePointID(baseTerritoryID, priceValue); err == nil {
+					foundID = id
 				}
 
-				resp, err := fetch("")
-				if err != nil {
-					return fmt.Errorf("resolve price: %w", err)
-				}
+				if foundID == "" {
+					fetch := func(nextURL string) (*asc.AppPricePointsV3Response, error) {
+						opts := []asc.PricePointsOption{
+							asc.WithPricePointsLimit(200),
+							asc.WithPricePointsTerritory(baseTerritoryID),
+						}
+						if nextURL != "" {
+							opts = append(opts, asc.WithPricePointsNextURL(nextURL))
+						}
+						return client.GetAppPricePoints(requestCtx, resolvedAppID, opts...)
+					}
 
-				for {
-					for _, pp := range resp.Data {
-						if priceFilter.MatchesPrice(pp.Attributes.CustomerPrice) {
-							foundID = pp.ID
+					resp, err := fetch("")
+					if err != nil {
+						return fmt.Errorf("resolve price: %w", err)
+					}
+
+					for {
+						for _, pp := range resp.Data {
+							if priceFilter.MatchesPrice(pp.Attributes.CustomerPrice) {
+								foundID = pp.ID
+								break
+							}
+						}
+						if foundID != "" {
 							break
 						}
-					}
-					if foundID != "" {
-						break
-					}
-					if resp.Links.Next == "" {
-						break
-					}
-					resp, err = fetch(resp.Links.Next)
-					if err != nil {
-						return fmt.Errorf("resolve price (next page): %w", err)
+						if resp.Links.Next == "" {
+							break
+						}
+						resp, err = fetch(resp.Links.Next)
+						if err != nil {
+							return fmt.Errorf("resolve price (next page): %w", err)
+						}
 					}
 				}
 
